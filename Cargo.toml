@@ -10,7 +10,7 @@ description = "Dioxus hooks for websocket connections"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = "0.3"
+dioxus = { git = "https://github.com/DioxusLabs/dioxus", rev = "c97f431"}
 wasm-bindgen = "0.2.78"
 wasm-bindgen-futures = "0.4.28"
 reqwasm = "0.5.0"
@@ -22,5 +22,5 @@ web-sys = { version = "0.3.44", features = ['console'] }
 async-std = "1.10.0"
 
 [dev-dependencies]
-dioxus-web = "0.3"
-fermi = "0.3"
+dioxus-web = { git = "https://github.com/DioxusLabs/dioxus", rev = "c97f431" }
+fermi = { git = "https://github.com/DioxusLabs/dioxus", rev = "c97f431" }
