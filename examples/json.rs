@@ -27,10 +27,10 @@ pub enum WsRequest {
 pub static WS_RESPONSE_ATOM: Atom<Option<WsResponse>> = |_| None;
 
 fn app(cx: Scope) -> Element {
-    use_init_atom_root(&cx);
-    let set_response = Rc::clone(use_set(&cx, WS_RESPONSE_ATOM));
+    use_init_atom_root(cx);
+    let set_response = Rc::clone(use_set(cx, WS_RESPONSE_ATOM));
 
-    use_ws_context_provider_json(&cx, "wss://echo.websocket.events", move |msg| {
+    use_ws_context_provider_json(cx, "wss://echo.websocket.events", move |msg| {
         // Handler for incoming parsed JSON websocket messages.
 
         // In this example we just set the response atom to the received message.
@@ -45,7 +45,7 @@ fn app(cx: Scope) -> Element {
 #[allow(non_snake_case)]
 fn ResponseDisplay(cx: Scope) -> Element {
     // We can access the latest websocket response from other components:
-    let response = use_read(&cx, WS_RESPONSE_ATOM);
+    let response = use_read(cx, WS_RESPONSE_ATOM);
 
     let response = response
         .as_ref()
@@ -63,21 +63,21 @@ fn ResponseDisplay(cx: Scope) -> Element {
 // We can also send websocket messages from other components:
 #[allow(non_snake_case)]
 fn SendA(cx: Scope) -> Element {
-    let ws = use_ws_context(&cx);
+    let ws = use_ws_context(cx);
     let onclick = move |_| ws.send_json(&WsRequest::A);
     cx.render(rsx!( button { onclick: onclick, "A" } ))
 }
 
 #[allow(non_snake_case)]
 fn SendB(cx: Scope) -> Element {
-    let ws = use_ws_context(&cx);
+    let ws = use_ws_context(cx);
     let onclick = move |_| ws.send_json(&WsRequest::B);
     cx.render(rsx!( button { onclick: onclick, "B" } ))
 }
 
 #[allow(non_snake_case)]
 fn SendC(cx: Scope) -> Element {
-    let ws = use_ws_context(&cx);
+    let ws = use_ws_context(cx);
     let onclick = move |_| ws.send_json(&WsRequest::C);
     cx.render(rsx!( button { onclick: onclick, "C" } ))
 }

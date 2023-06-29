@@ -11,10 +11,10 @@ fn main() {
 pub static WS_RESPONSE_ATOM: Atom<String> = |_| Default::default();
 
 fn app(cx: Scope) -> Element {
-    use_init_atom_root(&cx);
-    let set_response = Rc::clone(use_set(&cx, WS_RESPONSE_ATOM));
+    use_init_atom_root(cx);
+    let set_response = Rc::clone(use_set(cx, WS_RESPONSE_ATOM));
 
-    use_ws_context_provider_text(&cx, "wss://echo.websocket.events", move |msg| {
+    use_ws_context_provider_text(cx, "wss://echo.websocket.events", move |msg| {
         set_response(msg)
     });
 
@@ -23,10 +23,10 @@ fn app(cx: Scope) -> Element {
 
 #[allow(non_snake_case)]
 fn ResponseDisplay(cx: Scope) -> Element {
-    let response = use_read(&cx, WS_RESPONSE_ATOM);
-    let ws = use_ws_context(&cx);
+    let response = use_read(cx, WS_RESPONSE_ATOM);
+    let ws = use_ws_context(cx);
 
-    let input = use_state(&cx, String::default);
+    let input = use_state(cx, String::default);
     let submit = move |_| {
         ws.send_text(input.to_string());
         input.modify(|_| String::default());

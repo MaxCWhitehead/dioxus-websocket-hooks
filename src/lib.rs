@@ -1,96 +1,83 @@
-use std::{rc::Rc, sync::Arc, time::Duration};
+use std::{cell::RefCell, rc::Rc};
 
-use async_std::sync::RwLock;
 use dioxus::prelude::*;
-use futures::{
-    stream::{SplitSink, SplitStream},
-    SinkExt, StreamExt,
-};
-use reqwasm::websocket::futures::WebSocket;
-pub use reqwasm::websocket::Message;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
-use wasm_bindgen_futures::spawn_local;
+use wasm_sockets::{EventClient, Message, WebSocketError};
 
 #[derive(Clone)]
 pub struct DioxusWs {
-    url: String,
-    sender: Arc<RwLock<SplitSink<WebSocket, Message>>>,
-    receiver: Arc<RwLock<SplitStream<WebSocket>>>,
-    is_open: Arc<RwLock<bool>>,
+    event_client: Rc<RefCell<EventClient>>,
+    connected: Rc<RefCell<bool>>,
+}
+
+pub enum SendError {
+    SocketNotConnected(),
+    JsError(JsValue),
+}
+
+impl From<JsValue> for SendError {
+    fn from(value: JsValue) -> Self {
+        SendError::JsError(value)
+    }
 }
 
 impl DioxusWs {
-    pub fn new(url: &str) -> DioxusWs {
-        let ws = WebSocket::open(url).unwrap();
+    pub fn new(url: &str) -> Result<DioxusWs, WebSocketError> {
+        let mut client = wasm_sockets::EventClient::new(url)?;
 
-        let (sender, receiver) = ws.split();
-        let sender = Arc::new(RwLock::new(sender));
-        let receiver = Arc::new(RwLock::new(receiver));
+        let connected = Rc::new(RefCell::new(false));
 
-        DioxusWs {
-            url: url.to_string(),
-            sender,
-            receiver,
-            is_open: Arc::new(RwLock::new(false)),
+        client.set_on_error(Some(Box::new(|error| {
+            log_err(format!("Web socket error: {:?}", error).as_str());
+        })));
+        {
+            let connected = connected.clone();
+            client.set_on_connection(Some(Box::new(move |_client| {
+                let mut borrowed = connected.borrow_mut();
+                *borrowed = true;
+            })));
+        }
+        {
+            let connected = connected.clone();
+            client.set_on_close(Some(Box::new(move |_client| {
+                let mut borrowed = connected.borrow_mut();
+                *borrowed = false;
+            })));
+        }
+
+        Ok(DioxusWs {
+            event_client: Rc::new(RefCell::new(client)),
+            connected,
+        })
+    }
+
+    // Sends a Message
+    pub fn send(&self, msg: Message) {
+        if *self.connected.borrow() {
+            let result = match msg {
+                Message::Text(text) => self.event_client.borrow().send_string(&text),
+                Message::Binary(binary) => self.event_client.borrow().send_binary(binary),
+            };
+            if let Err(err) = result {
+                log_err(format!("Error when sending message on websocket: {:?}", err).as_str());
+            }
+        } else {
+            log_err("WebSocket tried to send message when not connected.");
         }
     }
 
-    /// Sends a reqwasm Message
-    pub fn send(&self, msg: Message) {
-        let sender = self.sender.clone();
-        let is_open = self.is_open.clone();
-
-        spawn_local(async move {
-            let is_open = *is_open.read().await;
-
-            if is_open {
-                let mut sender = sender.write().await;
-                sender.send(msg).await.ok();
-            }
-        });
-    }
-
-    pub fn set_open(&self, open: bool) {
-        let is_open = self.is_open.clone();
-        let sender = self.sender.clone();
-
-        spawn_local(async move {
-            let mut is_open = is_open.write().await;
-            *is_open = open;
-
-            let mut sender = sender.write().await;
-            sender.close().await.ok();
-        });
-    }
-
-    /// Sends a plaintext string
+    // Sends a plaintext string
     pub fn send_text(&self, text: String) {
         let msg = Message::Text(text);
         self.send(msg);
     }
 
-    /// Sends data that implements Serialize as JSON
+    // Sends data that implements Serialize as JSON
     pub fn send_json<T: Serialize>(&self, value: &T) {
         let json = serde_json::to_string(value).unwrap();
         let msg = Message::Text(json);
-        self.send(msg);
-    }
-
-    pub async fn reconnect(&self) {
-        let ws = WebSocket::open(&self.url).unwrap();
-
-        let (sender, receiver) = ws.split();
-
-        {
-            let mut self_sender = self.sender.write().await;
-            *self_sender = sender;
-        }
-
-        {
-            let mut self_receiver = self.receiver.write().await;
-            *self_receiver = receiver;
-        }
+        self.send(msg)
     }
 }
 
@@ -103,41 +90,17 @@ pub fn use_ws_context_provider(cx: &ScopeState, url: &str, handler: impl Fn(Mess
     let handler = Rc::new(handler);
 
     cx.use_hook(|| {
-        let ws = cx.provide_context(DioxusWs::new(url));
-        let receiver = ws.receiver.clone();
-
-        cx.push_future(async move {
-            loop {
-                let mut err = None;
-
-                {
-                    let mut receiver = receiver.write().await;
-                    while let Some(msg) = receiver.next().await {
-                        match msg {
-                            Ok(msg) => {
-                                ws.set_open(true);
-                                handler(msg)
-                            },
-                            Err(e) => {
-                                err = Some(e);
-                            }
-                        }
-                    }
-                }
-
-                if let Some(err) = err {
-                    ws.set_open(false);
-
-                    log_err(&format!(
-                        "Error while trying to receive message over websocket, reconnecting in 1s...\n{:?}", err
-                    ));
-
-                    async_std::task::sleep(Duration::from_millis(1000)).await;
-
-                    ws.reconnect().await;
-                }
-            }
-        })
+        let ws = DioxusWs::new(url);
+        if let Err(err) = ws {
+            log_err(format!("Error creating WebSocket for {}: {}", url, err).as_str());
+            return;
+        }
+        let ws = cx.provide_context(ws.unwrap());
+        ws.event_client.borrow_mut().set_on_message(Some(Box::new(
+            move |_client: &wasm_sockets::EventClient, message: Message| {
+                handler(message);
+            },
+        )));
     });
 }
 
@@ -174,7 +137,7 @@ where
                 )),
             }
         }
-        Message::Bytes(_) => {}
+        Message::Binary(_) => log_err("Error: binary websocket message unsupported"),
     };
 
     use_ws_context_provider(cx, url, handler)
@@ -182,11 +145,6 @@ where
 
 /// Consumes WebSocket context. Useful for sending messages over the WebSocket
 /// connection.
-///
-/// NOTE: Currently the server is expected to send a message when the connection
-/// opens. You will not be able to send websocket messages from the client
-/// before a message has been received from the server. This is a limitation
-/// in the current reconnection logic.
 pub fn use_ws_context(cx: &ScopeState) -> DioxusWs {
     cx.consume_context::<DioxusWs>().unwrap()
 }
