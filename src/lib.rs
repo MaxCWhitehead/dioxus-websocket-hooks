@@ -29,7 +29,7 @@ impl DioxusWs {
         let connected = Rc::new(RefCell::new(false));
 
         client.set_on_error(Some(Box::new(|error| {
-            log_err(format!("Web socket error: {:?}", error).as_str());
+            log::error!("Web socket error: {:?}", error);
         })));
         {
             let connected = connected.clone();
@@ -41,6 +41,7 @@ impl DioxusWs {
         {
             let connected = connected.clone();
             client.set_on_close(Some(Box::new(move |_client| {
+                log::info!("Websocket connection closed.");
                 let mut borrowed = connected.borrow_mut();
                 *borrowed = false;
             })));
@@ -60,10 +61,10 @@ impl DioxusWs {
                 Message::Binary(binary) => self.event_client.borrow().send_binary(binary),
             };
             if let Err(err) = result {
-                log_err(format!("Error when sending message on websocket: {:?}", err).as_str());
+                log::error!("Error when sending message on websocket: {:?}", err);
             }
         } else {
-            log_err("WebSocket tried to send message when not connected.");
+            log::error!("WebSocket tried to send message when not connected.");
         }
     }
 
@@ -92,7 +93,7 @@ pub fn use_ws_context_provider(cx: &ScopeState, url: &str, handler: impl Fn(Mess
     cx.use_hook(|| {
         let ws = DioxusWs::new(url);
         if let Err(err) = ws {
-            log_err(format!("Error creating WebSocket for {}: {}", url, err).as_str());
+            log::error!("Error creating WebSocket for {}: {}", url, err);
             return;
         }
         let ws = cx.provide_context(ws.unwrap());
@@ -131,13 +132,10 @@ where
 
             match json {
                 Ok(json) => handler(json),
-                Err(e) => log_err(&format!(
-                    "Error while deserializing websocket response: {}",
-                    e
-                )),
+                Err(e) => log::error!("Error while deserializing websocket response: {}", e),
             }
         }
-        Message::Binary(_) => log_err("Error: binary websocket message unsupported"),
+        Message::Binary(_) => log::error!("Error: binary websocket message unsupported"),
     };
 
     use_ws_context_provider(cx, url, handler)

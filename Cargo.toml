@@ -16,6 +16,7 @@ serde = { version = "1.0" }
 serde_json = "1.0"
 web-sys = { version = "0.3.44", features = ['console'] }
 wasm-sockets = "1.0.0"
+log = "0.4.19"
 
 [dev-dependencies]
 dioxus-web = { git = "https://github.com/DioxusLabs/dioxus", rev = "c97f431" }
